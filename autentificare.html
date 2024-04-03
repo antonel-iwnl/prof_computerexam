@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+
+<head style="background-color:#325370ff">
+    <link rel="stylesheet" type="text/css" href="http://fonts.googleapis.com/css?family=Roboto">
+    <style>
+        body {
+            font-family: Roboto;
+            font-size: 20px;
+            color: #8a5545;
+        }
+
+        .center {
+            margin: auto;
+            width: 50%;
+            padding: 10px;
+            border: 3px solid #eab398ff;
+            text-align: center;
+            background-color: rgb(255, 255, 255);
+        }
+    </style>
+</head>
+
+<body style="background-color:#325370ff">
+    <div class="center">
+        <h2>
+            Pagina pentru autentificare
+        </h2>
+        <br>
+        <form>
+            <input type="text" id="CNP" name="CNP" placeholder="CNP" />
+            <br>
+            <input type="text" id="parola" name="parola" placeholder="Parola" />
+            <br>
+        </form>
+        <button onclick="verifica()">Autentificare</button>
+        <p id="eroare"></p>
+    </div>
+</body>
+
+<script>
+    async function verifica() {
+        cnp = CNP.value
+        parola = parola.value
+        let data = { dcnp: cnp, dparola: parola };
+        let raspuns = await fetch("/verificare_date", {
+            method: "POST",
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        })
+        let corect = await raspuns.json();
+        if (corect[0].u == 1) 
+            window.location.href = "hartaclienti"
+        else
+            eroare.innerHTML = "Ati tastat gresit."
+    }
+</script>

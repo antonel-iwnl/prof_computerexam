@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html>
+<!-- Cere pinurile salvate si le afiseaza -->
+
+<head>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css"
+        integrity="sha512-xodZBNTC5n17Xt2atTPuE1HxjVMSvLVW9ocqUKLsCC5CXdbqCmblAshOMAS6/keqq/sMZMZ19scR4PsZChSR7A=="
+        crossorigin="" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" /> 
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"
+        integrity="sha512-XQoYMqMTK8LvdxXYG3nZ448hOEQiglfqkJs1NOQV44cWnUrBc8PkAOcXy20w0vlaXaVUearIOBhiXZ5V3ynxwA=="
+        crossorigin="">
+        </script>
+    <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
+    <style>
+        img.orange {
+            filter: hue-rotate(180deg) brightness(150%);
+        }
+
+        img.red {
+            filter: hue-rotate(120deg);
+        }
+
+        img.green {
+            filter: hue-rotate(240deg);
+        }
+
+        #mapid {
+            height: 700px;
+            width: 1270px;
+        }
+
+        #info {
+            display: none;
+            border: 1px solid #73AD21;
+            position: absolute;   
+            left: 510px;
+            top: 150px;
+            background-color: lightblue;
+            width: 100px;
+            z-index: 777;
+        }
+    </style>
+    <script>
+        const accessToken = 'pk.eyJ1IjoianVuaW9yb3IiLCJhIjoiY2t1aDlkd3kwMTQ2aDJxbnZpZ2p2NTJ3cCJ9.owXMOtjZAUr1YkALzrWWIg'
+        var mymap;
+        var rControl;
+        var bMarkers = false;
+        var marker_u;
+        
+        var cazari;
+        var nCazari;
+        var iCazari = -1; // Va fi folosit in onRoutesFound.
+        var preturi; // vector cu id-urile cazarilor, crescator dupa pret
+        var ratings; // vector cu id-urile cazarilor, descrescator dupa rating
+        var cp; // vector cu id-urile cazarilor, crescator dupa confort / pret
+        var limita; // distanta pana la care se cauta cazari
+        var lId = []; // locul pe care se afla o anumita cazare in vectorul cazari
+
+        function harta() { // Prezinta harta.
+            // Centrul judetului:
+            mymap = L.map('mapid').setView([47.64664784605501, 23.97621580452598], 10);
+            // Langa Sighet:
+            // mymap = L.map('mapid').setView([47.91368143996508, 23.9033317565918], 14);
+            // Petrova, limita = 30
+            //  mymap = L.map('mapid').setView([47.838214506855905, 24.20125007629395], 12);
+
+            L.tileLayer('https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}?access_token={accessToken}', {
+                attribution:
+                    `Map data &copy;
+                <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>
+                contributors, Imagery ©
+                <a href="https://www.mapbox.com/">Mapbox</a>`,
+                maxZoom: 18,
+                id: 'mapbox/streets-v11',
+                tileSize: 512,
+                zoomOffset: -1,
+                accessToken: accessToken
+            }).addTo(mymap);
+            mymap.on('click', onMapClick);
+        }
+
+        async function onMapClick(e) { // Cand utilizatorul da clic, determina distantele.
+            if (!bMarkers) { // Se pune pin-ul pentru pozitia utilizatorului.
+                marker_u = L.marker(e.latlng).addTo(mymap);
+                bMarkers = true;
+                mesaj.innerHTML = "Se determina distantele ..."
+                distante(); // Se determina distantele de la utilizator la fiecare parcare.
+            }
+            else { // Utilizatorul alege una dintre recomandari
+                // TODO
+            }
+        }
+
+        function routing_control() { // Asociem hartii un routing control - calculeaza distanta + prezinta traseul.
+            rControl = L.Routing.control({
+                router: L.Routing.mapbox(accessToken),
+                collapsible: true,
+                show: false
+            }).addTo(mymap);
+            rControl.on('routesfound', onRoutesFound);
+        }
+
+        function onRoutesFound(e) { // Se executa cand se modifica waypoints pentru routing control.
+            iCazari++;
+            var routes = e.routes;
+            var summary = routes[0].summary;
+            console.log('Distanta: ' + summary.totalDistance + ' m')
+            // console.log('Time: ' + summary.totalTime / 60 + ' minutes');
+            cazari[iCazari].distanta = Math.round(summary.totalDistance) / 1000;
+        };
+
+        async function coord_cazari() { // Preia din tabel informatiile despre cazari.
+            response = await fetch('getcoords')
+            cazari = await response.json();
+            console.log("cazari", cazari);
+            nCazari = cazari.length;
+            for (let i = 0; i < nCazari; i++) { // locurile pe care se afla cazarile
+                let id = cazari[i].id_cazare;
+                lId[id] = i;
+            }
+        }
+
+        async function sortPret() {
+            response = await fetch('sortarePret')
+            preturi = await response.json();
+            // console.log(preturi);
+        }
+
+        async function sortRating() {
+            response = await fetch('sortareRating')
+            ratings = await response.json();
+            // console.log(ratings);
+        }
+
+        async function sortRaportCP() {
+            response = await fetch('sortareRaportCP')
+            cp = await response.json();
+            // console.log(cp);
+        }
+
+        async function showpins() { // pentru o eventuala verificare
+            var markers = [];
+            cazari.forEach(cazare => {
+                var p = { lat: cazare.latitudine, lng: cazare.longitudine }
+                markers.push(L.marker(p).addTo(mymap))
+            })
+        }
+
+        function fIRecomandat(v) {
+            console.log("v", v)
+            for (let i = 0; i < nCazari; i++) {
+                let id = v[i].id_cazare;
+                console.log("id", id)
+                console.log("distanta", cazari[lId[id]].distanta);
+                if (cazari[lId[id]].distanta <= limita) {
+                    return lId[id]; // indicele locului de cazare recomandat
+                }
+            }
+            return -1;
+        }
+
+        function onMarkerClick() { // TODO
+            console.log("marker clic")
+        }
+
+        function onMouseOver(e) { // Se prezinta informatii despre cazare.
+            numeCazare.innerText = cazari[this.i].nume;
+            distanta.innerText = cazari[this.i].distanta + ' km';
+            pret.innerText = cazari[this.i].pret + ' lei';
+            info.style.display = "block";
+            info.style.left = e.originalEvent.clientX + 'px';
+            info.style.top = e.originalEvent.clientY + 'px';
+        }
+
+        function onMouseOut() {
+            info.style.display = "none";
+        }
+
+        async function distante() {
+            var w; // vectorul pentru waypoints
+            var i = 0; // pentru timers
+
+            // Se determina distantele:
+            rControl._container.style.display = "none";
+            console.log(rControl);
+            cazari.forEach(cazare => {
+                i++;
+                setTimeout(() => {
+                    w = [];
+                    w.push(marker_u.getLatLng()); // Locul utilizatorului
+                    w.push(L.latLng(cazare.latitudine, cazare.longitudine)); // loc de cazare
+                    rControl.setWaypoints(w);
+                }, i * 500);
+            })
+
+            setTimeout(() => {
+                // Determinam indicii pentru cele 3 recomandari.
+                console.log(cazari);
+                limita = iLimita.value;
+                let iPret = fIRecomandat(preturi);
+                // console.log("verde: ", cazari[iPret].nume)
+                let iCP = fIRecomandat(cp);
+                // console.log("portocaliu: ", cazari[iCP].nume)
+                let iRating = fIRecomandat(ratings);
+                // console.log("rosu: ", cazari[iRating].nume)
+
+                if (iPret != -1) { // Cel putin un loc de cazare este in limita indicata.
+                    // Pregatim pinurile, nu le punem pe harta:
+                    var cmPret = { lat: cazari[iPret].latitudine, lng: cazari[iPret].longitudine }
+                    var mPret = L.marker(cmPret);
+                    mPret.on('click', onMarkerClick);
+                    mPret.on('mouseover', onMouseOver);
+                    mPret.on('mouseout', onMouseOut);
+                    mPret.i = iPret;
+
+                    var cmOptim = { lat: cazari[iCP].latitudine, lng: cazari[iCP].longitudine }
+                    var mOptim = L.marker(cmOptim);
+                    mOptim.on('click', onMarkerClick);
+                    mOptim.on('mouseover', onMouseOver);
+                    mOptim.on('mouseout', onMouseOut);
+                    mOptim.i = iCP;
+
+                    var cmConfort = { lat: cazari[iRating].latitudine, lng: cazari[iRating].longitudine }
+                    var mConfort = L.marker(cmConfort);
+                    mConfort.on('click', onMarkerClick);
+                    mConfort.on('mouseover', onMouseOver);
+                    mConfort.on('mouseout', onMouseOut);
+                    mConfort.i = iRating;
+
+                    // Sunt identice unele recomandari?
+                    if (iPret == iRating) {
+                        if (iPret == iCP) {
+                            mesaj.innerText = 'Cele 3 recomandari sunt identice.';
+                            mPret.addTo(mymap);
+                        }
+                        else {
+                            mesaj.innerText = 'Recomandarile "pret minim" si "confort" sunt identice.';
+                            mPret.addTo(mymap);
+                            mOptim.addTo(mymap);
+                            mOptim._icon.classList.add("orange");
+                        }
+                    }
+                    else {
+                        if (iPret == iCP) {
+                            mesaj.innerText = 'Recomandarile "pret minim" si "optim" sunt identice.';
+                            mPret.addTo(mymap);
+                            mConfort.addTo(mymap);
+                            console.log(mConfort.getLatLng());
+                            mConfort._icon.classList.add("red");
+                        }
+                        else {
+                            if (iCP == iRating) {
+                                mesaj.innerText = 'Recomandarile "optim" si "confort" sunt identice.';
+                                mPret.addTo(mymap);
+                                mOptim.addTo(mymap);
+                            }
+                            else {
+                                mPret.addTo(mymap);
+                                mOptim.addTo(mymap);
+                                mConfort.addTo(mymap);
+                                mConfort._icon.classList.add("red");
+                                mesaj.innerHTML = "Au fost determinate locurile pe care vi le recomandam."
+                            }
+                            mOptim._icon.classList.add("orange");
+                        }
+                    }
+                    mPret._icon.classList.add("green");
+                }
+                else {
+                    mesaj.innerText = 'Nu exista niciun loc de cazare atat de aproape.';
+                }
+                // Se face zoom incat sa se vada toate cele 3 pin-uri.
+                var pins = new L.featureGroup([mPret, mOptim, mConfort, marker_u]);
+                mymap.fitBounds(pins.getBounds());
+
+                rControl.setWaypoints([]); // ca sa nu se vada linia rosie pentru traseu
+            }, (cazari.length + 1) * 500);
+        }
+
+        function iLimitaOnInput() {
+            limita = parseInt(iLimita.value);
+            console.log(limita);
+        }
+
+        async function init() {
+            harta(); // Afiseaza harta.
+            routing_control(); // Creeaza routing control.
+            await coord_cazari(); // Preia din tabel informatiile despre cazari.
+            await sortPret();
+            await sortRating();
+            await sortRaportCP();
+            mesaj.innerText = 'Indicati distanta limita, apoi locul in apropierea caruia vreti sa va cazati.';
+            // showpins();
+            // iLimita.addEventListener("input", iLimitaOnInput);
+        }
+    </script>
+</head>
+
+<body onload="init()">
+    <h1 id="mesaj">
+        Se initializeaza aplicatia ...
+    </h1>
+    <label>Limita: </label>
+    <input type="text" id="iLimita"></input>
+    <div id="mapid">
+    </div>
+    <button onclick="traseu()">Traseu</button>
+    <button onclick="hide()">Ascunde</button>
+    <div id="info">
+        <label id="numeCazare"></label>
+        <br>
+        <label id="distanta"></label>
+        <br>
+        <label id="pret"></label>
+    </div>
+
+    <script>
+        function traseu() {
+            // rControl.remove();
+        }
+
+        function hide() {
+            rControl.hide();
+        }
+    </script>
+
+</body>
+
+</html>
